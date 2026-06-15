@@ -26,7 +26,7 @@ A full-featured to-do list web application built with Flask. TaskFlow supports u
 ## Tech Stack
 
 | Layer | Technology |
-|---|---|
+| --- | --- |
 | Web framework | Flask 3.x |
 | Auth | Flask-Login + Werkzeug |
 | Encryption | cryptography (Fernet) |
@@ -86,7 +86,7 @@ On first run, `secrets.json` and `todos.db` are created automatically — no man
 
 ## Project Structure
 
-```
+```text
 taskflow/
 ├── app.py              # Flask app, routes, DB, encryption
 ├── requirements.txt    # Python dependencies
