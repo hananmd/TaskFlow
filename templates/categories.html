@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Categories — TaskFlow{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-md-7 col-lg-5">
+
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <a href="{{ url_for('index') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i>
+      </a>
+      <h5 class="mb-0 fw-bold">Manage Categories</h5>
+    </div>
+
+    <div class="app-card card mb-3 p-3">
+      <form method="POST">
+        <div class="row g-2 align-items-end">
+          <div class="col">
+            <input type="text" name="name" class="form-control" placeholder="Category name" required />
+          </div>
+          <div class="col-auto">
+            <input type="color" name="color" class="form-control form-control-color p-1"
+                   value="#6366f1" title="Pick a color" style="width:3rem" />
+          </div>
+          <div class="col-auto">
+            <button type="submit" class="btn btn-brand">
+              <i class="bi bi-plus-lg"></i> Add
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    {% if categories %}
+    <div class="app-card card">
+      <ul class="list-group list-group-flush">
+        {% for cat in categories %}
+        <li class="list-group-item d-flex align-items-center justify-content-between py-2 px-3">
+          <span class="d-flex align-items-center gap-2">
+            <span class="cat-badge" style="background:{{ cat.color }}">{{ cat.name }}</span>
+            <small class="text-muted">{{ cat.color }}</small>
+          </span>
+          <form action="{{ url_for('delete_category', cat_id=cat.id) }}" method="POST" class="mb-0">
+            <button type="submit" class="btn btn-link p-0 del-btn" title="Delete category"
+                    onclick="return confirm('Delete category &ldquo;{{ cat.name }}&rdquo;? Tasks will not be deleted.')">
+              <i class="bi bi-trash"></i>
+            </button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% else %}
+    <p class="text-center text-muted small py-4">
+      <i class="bi bi-tag d-block mb-2 fs-2"></i>
+      No categories yet. Create one above.
+    </p>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}

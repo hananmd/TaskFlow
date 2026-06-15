@@ -434,3 +434,127 @@ class TestUserIsolation:
         with app_module.get_db() as conn:
             row = conn.execute("SELECT * FROM todos WHERE id=?", (todo_id,)).fetchone()
         assert row is not None
+
+
+# ── Theme toggle ────────────────────────────────────────────────────────────────
+
+class TestThemeToggle:
+    def test_default_theme_is_light(self, auth_client):
+        with app_module.get_db() as conn:
+            theme = conn.execute(
+                "SELECT theme FROM users WHERE username='alice'"
+            ).fetchone()["theme"]
+        assert theme == "light"
+
+    def test_toggle_changes_to_dark(self, auth_client):
+        rv = auth_client.post("/theme")
+        assert rv.status_code == 200
+        assert rv.json == {"theme": "dark"}
+        with app_module.get_db() as conn:
+            theme = conn.execute(
+                "SELECT theme FROM users WHERE username='alice'"
+            ).fetchone()["theme"]
+        assert theme == "dark"
+
+    def test_toggle_twice_returns_to_light(self, auth_client):
+        auth_client.post("/theme")
+        auth_client.post("/theme")
+        with app_module.get_db() as conn:
+            theme = conn.execute(
+                "SELECT theme FROM users WHERE username='alice'"
+            ).fetchone()["theme"]
+        assert theme == "light"
+
+    def test_unauthenticated_redirects(self, client):
+        rv = client.post("/theme", follow_redirects=False)
+        assert rv.status_code == 302
+        assert "login" in rv.location
+
+    def test_theme_persists_across_requests(self, auth_client):
+        auth_client.post("/theme")
+        rv = auth_client.get("/")
+        assert b'data-theme="dark"' in rv.data or b"dark" in rv.data
+
+
+# ── Categories ──────────────────────────────────────────────────────────────────
+
+class TestCategories:
+    def _add_category(self, auth_client, name="Work", color="#dc3545"):
+        return auth_client.post(
+            "/categories",
+            data={"name": name, "color": color},
+            follow_redirects=True,
+        )
+
+    def test_add_category_shows_in_list(self, auth_client):
+        rv = self._add_category(auth_client)
+        assert b"Work" in rv.data
+
+    def test_duplicate_category_name_rejected(self, auth_client):
+        self._add_category(auth_client, name="Work")
+        rv = self._add_category(auth_client, name="Work")
+        assert b"already exists" in rv.data
+
+    def test_category_color_is_stored(self, auth_client):
+        self._add_category(auth_client, name="Personal", color="#10b981")
+        with app_module.get_db() as conn:
+            row = conn.execute(
+                "SELECT color FROM categories WHERE name='Personal'"
+            ).fetchone()
+        assert row["color"] == "#10b981"
+
+    def test_categories_are_user_scoped(self, client):
+        _register(client, username="alice", email="alice@example.com")
+        _login(client, username="alice")
+        self._add_category(client, name="AliceCat")
+        client.get("/logout")
+        rv = _register(client, username="bob", email="bob@example.com")
+        if b"already taken" in rv.data or rv.status_code == 302:
+            pass
+        _login(client, username="bob")
+        rv = client.get("/categories")
+        assert b"AliceCat" not in rv.data
+
+    def test_delete_category(self, auth_client):
+        self._add_category(auth_client, name="Temp")
+        with app_module.get_db() as conn:
+            cat_id = conn.execute(
+                "SELECT id FROM categories WHERE name='Temp'"
+            ).fetchone()["id"]
+        auth_client.post(f"/categories/{cat_id}/delete")
+        with app_module.get_db() as conn:
+            row = conn.execute(
+                "SELECT id FROM categories WHERE id=?", (cat_id,)
+            ).fetchone()
+        assert row is None
+
+    def test_category_badges_appear_on_dashboard(self, auth_client):
+        self._add_category(auth_client, name="Urgent", color="#dc3545")
+        with app_module.get_db() as conn:
+            cat_id = conn.execute(
+                "SELECT id FROM categories WHERE name='Urgent'"
+            ).fetchone()["id"]
+        auth_client.post(
+            "/add",
+            data={"title": "Important task", "priority": "high",
+                  "due_date": "", "notes": "", "category_ids": [str(cat_id)]},
+            follow_redirects=True,
+        )
+        rv = auth_client.get("/")
+        assert b"Urgent" in rv.data
+
+    def test_category_persists_on_edit(self, auth_client):
+        self._add_category(auth_client, name="Work")
+        with app_module.get_db() as conn:
+            cat_id = conn.execute(
+                "SELECT id FROM categories WHERE name='Work'"
+            ).fetchone()["id"]
+        auth_client.post(
+            "/add",
+            data={"title": "Task", "priority": "low",
+                  "due_date": "", "notes": "", "category_ids": [str(cat_id)]},
+        )
+        with app_module.get_db() as conn:
+            todo_id = conn.execute("SELECT id FROM todos").fetchone()["id"]
+        rv = auth_client.get(f"/edit/{todo_id}")
+        assert b"Work" in rv.data

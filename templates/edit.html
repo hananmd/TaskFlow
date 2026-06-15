@@ -39,6 +39,26 @@
 
         <div class="mb-4">
           <label class="form-label fw-semibold small d-flex align-items-center gap-1">
+            <i class="bi bi-tags" style="color:var(--brand)"></i>
+            Categories
+          </label>
+          <div class="d-flex flex-wrap gap-2">
+            {% for cat in categories %}
+            <label class="d-inline-flex align-items-center gap-1 small" style="cursor:pointer">
+              <input type="checkbox" name="category_ids" value="{{ cat.id }}"
+                     {% if cat.id in todo_cat_ids %}checked{% endif %}
+                     style="accent-color:{{ cat.color }}" />
+              <span class="cat-badge" style="background:{{ cat.color }}">{{ cat.name }}</span>
+            </label>
+            {% endfor %}
+            {% if not categories %}
+            <span class="text-muted small">No categories yet. <a href="{{ url_for('categories') }}">Create one</a>.</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label fw-semibold small d-flex align-items-center gap-1">
             <i class="bi bi-lock-fill" style="color:var(--brand)"></i>
             Private Notes
             <span class="badge ms-1 fw-normal" style="background:var(--brand);font-size:.65rem">

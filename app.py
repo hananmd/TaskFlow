@@ -64,6 +64,7 @@ def init_db():
                 username      TEXT    UNIQUE NOT NULL,
                 email         TEXT    UNIQUE NOT NULL,
                 password_hash TEXT    NOT NULL,
+                theme         TEXT    NOT NULL DEFAULT 'light',
                 created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS todos (
@@ -77,7 +78,27 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
+            CREATE TABLE IF NOT EXISTS categories (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                name        TEXT    NOT NULL,
+                color       TEXT    NOT NULL DEFAULT '#6366f1',
+                created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                UNIQUE(user_id, name)
+            );
+            CREATE TABLE IF NOT EXISTS todo_categories (
+                todo_id     INTEGER NOT NULL,
+                category_id INTEGER NOT NULL,
+                PRIMARY KEY (todo_id, category_id),
+                FOREIGN KEY (todo_id) REFERENCES todos(id) ON DELETE CASCADE,
+                FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+            );
         """)
+        # Migration: add theme column if missing (for existing DBs)
+        cols = conn.execute("PRAGMA table_info(users)").fetchall()
+        if "theme" not in [c["name"] for c in cols]:
+            conn.execute("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'light'")
 
 
 # ── Flask-Login ───────────────────────────────────────────────────────────────
@@ -92,6 +113,7 @@ class User(UserMixin):
         self.id = row["id"]
         self.username = row["username"]
         self.email = row["email"]
+        self.theme = row["theme"] if "theme" in row.keys() else "light"
 
 
 @login_manager.user_loader
@@ -110,6 +132,28 @@ def fmtdate(s):
         return datetime.strptime(s, "%Y-%m-%d").strftime("%b %d, %Y")
     except ValueError:
         return s
+
+
+# ── Context processors ──────────────────────────────────────────────────────────
+@app.context_processor
+def inject_theme():
+    if current_user.is_authenticated:
+        return dict(user_theme=current_user.theme)
+    return dict(user_theme="light")
+
+
+# ── Theme route ─────────────────────────────────────────────────────────────────
+@app.route("/theme", methods=["POST"])
+@login_required
+def toggle_theme():
+    if current_user.theme == "light":
+        new_theme = "dark"
+    else:
+        new_theme = "light"
+    with get_db() as conn:
+        conn.execute("UPDATE users SET theme=? WHERE id=?", (new_theme, current_user.id))
+    current_user.theme = new_theme
+    return {"theme": new_theme}
 
 
 # ── Auth routes ───────────────────────────────────────────────────────────────
@@ -181,10 +225,29 @@ def index():
             "SELECT * FROM todos WHERE user_id=? AND done=1 ORDER BY created_at DESC",
             (current_user.id,),
         ).fetchall()
-    overdue    = [t for t in active if t["due_date"] and t["due_date"] < today]
-    today_list = [t for t in active if t["due_date"] == today]
-    upcoming   = [t for t in active if t["due_date"] and t["due_date"] > today]
-    no_date    = [t for t in active if not t["due_date"]]
+        categories = conn.execute(
+            "SELECT * FROM categories WHERE user_id=? ORDER BY name",
+            (current_user.id,),
+        ).fetchall()
+        todo_cats = conn.execute("""
+            SELECT tc.todo_id, c.id, c.name, c.color
+            FROM todo_categories tc
+            JOIN categories c ON c.id = tc.category_id
+            WHERE c.user_id=?
+        """, (current_user.id,)).fetchall()
+
+    cat_map = {}
+    for row in todo_cats:
+        cat_map.setdefault(row["todo_id"], []).append({"id": row["id"], "name": row["name"], "color": row["color"]})
+
+    def enrich(todos):
+        return [{**dict(t), "categories": cat_map.get(t["id"], [])} for t in todos]
+
+    overdue    = enrich([t for t in active if t["due_date"] and t["due_date"] < today])
+    today_list = enrich([t for t in active if t["due_date"] == today])
+    upcoming   = enrich([t for t in active if t["due_date"] and t["due_date"] > today])
+    no_date    = enrich([t for t in active if not t["due_date"]])
+    completed  = enrich(completed)
     active_count = len(overdue) + len(today_list) + len(upcoming) + len(no_date)
     return render_template(
         "index.html",
@@ -195,6 +258,7 @@ def index():
         completed=completed,
         active_count=active_count,
         today=today,
+        categories=categories,
     )
 
 
@@ -206,15 +270,22 @@ def add():
     priority = request.form.get("priority", "medium")
     due_date = request.form.get("due_date", "").strip() or None
     notes    = request.form.get("notes", "").strip()
+    category_ids = request.form.getlist("category_ids")
     if priority not in ("low", "medium", "high"):
         priority = "medium"
     if title:
         with get_db() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO todos (user_id,title,priority,due_date,notes_enc) VALUES (?,?,?,?,?)",
                 (current_user.id, title, priority, due_date,
                  encrypt(notes) if notes else None),
             )
+            todo_id = cur.lastrowid
+            for cat_id in category_ids:
+                conn.execute(
+                    "INSERT OR IGNORE INTO todo_categories (todo_id, category_id) VALUES (?,?)",
+                    (todo_id, cat_id),
+                )
     return redirect(url_for("index"))
 
 
@@ -226,6 +297,14 @@ def edit(todo_id):
             "SELECT * FROM todos WHERE id=? AND user_id=?",
             (todo_id, current_user.id),
         ).fetchone()
+        categories = conn.execute(
+            "SELECT * FROM categories WHERE user_id=? ORDER BY name",
+            (current_user.id,),
+        ).fetchall()
+        todo_cats = conn.execute(
+            "SELECT category_id FROM todo_categories WHERE todo_id=?", (todo_id,)
+        ).fetchall()
+        todo_cat_ids = {row["category_id"] for row in todo_cats}
     if not todo:
         return redirect(url_for("index"))
     if request.method == "POST":
@@ -233,6 +312,7 @@ def edit(todo_id):
         priority = request.form.get("priority", "medium")
         due_date = request.form.get("due_date", "").strip() or None
         notes    = request.form.get("notes", "").strip()
+        category_ids = request.form.getlist("category_ids")
         if priority not in ("low", "medium", "high"):
             priority = "medium"
         if title:
@@ -244,9 +324,15 @@ def edit(todo_id):
                      encrypt(notes) if notes else None,
                      todo_id, current_user.id),
                 )
+                conn.execute("DELETE FROM todo_categories WHERE todo_id=?", (todo_id,))
+                for cat_id in category_ids:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO todo_categories (todo_id, category_id) VALUES (?,?)",
+                        (todo_id, cat_id),
+                    )
         return redirect(url_for("index"))
     notes_dec = decrypt(todo["notes_enc"]) if todo["notes_enc"] else ""
-    return render_template("edit.html", todo=todo, notes=notes_dec)
+    return render_template("edit.html", todo=todo, notes=notes_dec, categories=categories, todo_cat_ids=todo_cat_ids)
 
 
 @app.route("/toggle/<int:todo_id>", methods=["POST"])
@@ -279,6 +365,41 @@ def clear_completed():
             "DELETE FROM todos WHERE user_id=? AND done=1", (current_user.id,)
         )
     return redirect(url_for("index"))
+
+
+# ── Category CRUD ───────────────────────────────────────────────────────────────
+@app.route("/categories", methods=["GET", "POST"])
+@login_required
+def categories():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        color = request.form.get("color", "#6366f1")
+        if name:
+            with get_db() as conn:
+                try:
+                    conn.execute(
+                        "INSERT INTO categories (user_id, name, color) VALUES (?,?,?)",
+                        (current_user.id, name, color),
+                    )
+                except sqlite3.IntegrityError:
+                    flash("Category name already exists.", "danger")
+        return redirect(url_for("categories"))
+    with get_db() as conn:
+        cats = conn.execute(
+            "SELECT * FROM categories WHERE user_id=? ORDER BY name",
+            (current_user.id,),
+        ).fetchall()
+    return render_template("categories.html", categories=cats)
+
+
+@app.route("/categories/<int:cat_id>/delete", methods=["POST"])
+@login_required
+def delete_category(cat_id):
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM categories WHERE id=? AND user_id=?", (cat_id, current_user.id)
+        )
+    return redirect(url_for("categories"))
 
 
 if __name__ == "__main__":
