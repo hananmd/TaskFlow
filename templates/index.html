@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — TaskFlow{% endblock %}
+
+{% block content %}
+
+{# ── Task row macro ─────────────────────────────────────────────────────────── #}
+{% macro task_row(t) %}
+<li class="list-group-item task-row d-flex align-items-center gap-2 py-2 px-3">
+
+  <form action="{{ url_for('toggle', todo_id=t.id) }}" method="POST" class="mb-0 flex-shrink-0">
+    <button type="submit" class="btn btn-link p-0 check-btn" title="Toggle done">
+      <i class="bi {% if t.done %}bi-check-circle-fill{% else %}bi-circle{% endif %} fs-5"></i>
+    </button>
+  </form>
+
+  <span class="flex-grow-1 {% if t.done %}task-done{% endif %} text-truncate">
+    {{ t.title }}
+    {% if t.notes_enc %}
+    <i class="bi bi-lock-fill ms-1 small text-muted" title="Has encrypted note"></i>
+    {% endif %}
+  </span>
+
+  <span class="p-{{ t.priority }} text-uppercase flex-shrink-0">{{ t.priority }}</span>
+
+  {% if t.due_date %}
+  <small class="text-muted text-nowrap flex-shrink-0">{{ t.due_date | fmtdate }}</small>
+  {% endif %}
+
+  {% if not t.done %}
+  <a href="{{ url_for('edit', todo_id=t.id) }}"
+     class="btn btn-link p-0 edit-btn flex-shrink-0" title="Edit">
+    <i class="bi bi-pencil fs-6"></i>
+  </a>
+  {% endif %}
+
+  <form action="{{ url_for('delete', todo_id=t.id) }}" method="POST" class="mb-0 flex-shrink-0">
+    <button type="submit" class="btn btn-link p-0 del-btn" title="Delete">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </form>
+
+</li>
+{% endmacro %}
+
+{# ── Layout ──────────────────────────────────────────────────────────────────── #}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-9">
+
+    {# Stat cards #}
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-md-3">
+        <div class="app-card card text-center py-3 px-2">
+          <div class="stat-val" style="color:var(--brand)">{{ active_count }}</div>
+          <div class="small text-muted mt-1">Active</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="app-card card text-center py-3 px-2">
+          <div class="stat-val text-danger">{{ overdue | length }}</div>
+          <div class="small text-muted mt-1">Overdue</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="app-card card text-center py-3 px-2">
+          <div class="stat-val" style="color:#f59e0b">{{ today_list | length }}</div>
+          <div class="small text-muted mt-1">Due Today</div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="app-card card text-center py-3 px-2">
+          <div class="stat-val text-primary">{{ upcoming | length }}</div>
+          <div class="small text-muted mt-1">Upcoming</div>
+        </div>
+      </div>
+    </div>
+
+    {# Add task form #}
+    <div class="app-card card mb-4">
+      <div class="card-body p-3">
+        <form action="{{ url_for('add') }}" method="POST">
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col">
+              <input type="text" name="title" class="form-control"
+                     placeholder="What needs to be done?" autofocus required />
+            </div>
+            <div class="col-auto">
+              <select name="priority" class="form-select" title="Priority">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div class="col-auto">
+              <input type="date" name="due_date" class="form-control" title="Due date" />
+            </div>
+            <div class="col-auto">
+              <button type="submit" class="btn btn-brand">
+                <i class="bi bi-plus-lg me-1"></i>Add
+              </button>
+            </div>
+          </div>
+          <textarea name="notes" class="form-control notes-input" rows="2"
+                    placeholder="🔒 Private notes (stored encrypted) — optional"></textarea>
+        </form>
+      </div>
+    </div>
+
+    {# ── Overdue ──────────────────────────────────────────────────────────────── #}
+    {% if overdue %}
+    <div class="app-card card mb-3">
+      <div class="card-header section-overdue fw-semibold py-2 px-3 d-flex align-items-center">
+        <i class="bi bi-exclamation-circle-fill me-2"></i>Overdue
+        <span class="badge bg-danger ms-2">{{ overdue | length }}</span>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for t in overdue %}{{ task_row(t) }}{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {# ── Today ────────────────────────────────────────────────────────────────── #}
+    <div class="app-card card mb-3">
+      <div class="card-header section-today fw-semibold py-2 px-3 d-flex align-items-center">
+        <i class="bi bi-calendar-check-fill me-2"></i>Today
+        <span class="badge ms-2" style="background:#92400e">{{ today_list | length }}</span>
+      </div>
+      {% if today_list %}
+      <ul class="list-group list-group-flush">
+        {% for t in today_list %}{{ task_row(t) }}{% endfor %}
+      </ul>
+      {% else %}
+      <div class="card-body text-center text-muted py-3 small">
+        <i class="bi bi-sun me-1"></i>No tasks due today — enjoy your day!
+      </div>
+      {% endif %}
+    </div>
+
+    {# ── Upcoming ─────────────────────────────────────────────────────────────── #}
+    {% if upcoming %}
+    <div class="app-card card mb-3">
+      <div class="card-header section-upcoming fw-semibold py-2 px-3 d-flex align-items-center">
+        <i class="bi bi-calendar3 me-2"></i>Upcoming
+        <span class="badge bg-primary ms-2">{{ upcoming | length }}</span>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for t in upcoming %}{{ task_row(t) }}{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {# ── No due date ──────────────────────────────────────────────────────────── #}
+    {% if no_date %}
+    <div class="app-card card mb-3">
+      <div class="card-header section-nodate fw-semibold py-2 px-3 d-flex align-items-center">
+        <i class="bi bi-inbox me-2"></i>No Due Date
+        <span class="badge bg-secondary ms-2">{{ no_date | length }}</span>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for t in no_date %}{{ task_row(t) }}{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {# ── Completed ────────────────────────────────────────────────────────────── #}
+    {% if completed %}
+    <div class="app-card card mb-3">
+      <div class="card-header section-done fw-semibold py-2 px-3 d-flex align-items-center justify-content-between">
+        <span>
+          <i class="bi bi-check-all me-2"></i>Completed
+          <span class="badge bg-success ms-2">{{ completed | length }}</span>
+        </span>
+        <form action="{{ url_for('clear_completed') }}" method="POST" class="mb-0">
+          <button type="submit" class="btn btn-sm btn-outline-danger py-0">
+            <i class="bi bi-trash3 me-1"></i>Clear all
+          </button>
+        </form>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for t in completed %}{{ task_row(t) }}{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    {# ── Empty state ──────────────────────────────────────────────────────────── #}
+    {% if not overdue and not today_list and not upcoming and not no_date and not completed %}
+    <div class="text-center py-5 text-muted">
+      <i class="bi bi-check2-circle display-3 d-block mb-3 text-success"></i>
+      <h5 class="mb-1">You're all caught up!</h5>
+      <p class="small">Add a task above to get started.</p>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
