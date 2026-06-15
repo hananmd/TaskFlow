@@ -34,7 +34,7 @@ A full-featured to-do list web application built with Flask. TaskFlow supports u
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/hananmd/taskflow.git
+git clone https://github.com/hananmd/TaskFlow.git
 cd taskflow
 
 # 2. Create and activate a virtual environment
