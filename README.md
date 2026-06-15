@@ -12,6 +12,17 @@ A full-featured to-do list web application built with Flask. TaskFlow supports u
 - **Priority Sorting** — Tasks sorted High → Medium → Low within each section.
 - **Clear Completed** — One-click bulk delete of all completed tasks.
 
+## Screenshots
+
+**Login**
+![Login page](screenshots/login.png)
+
+**Dashboard**
+![Dashboard](screenshots/dashboard.png)
+
+**Edit Task**
+![Edit task page](screenshots/edit_task.png)
+
 ## Tech Stack
 
 | Layer | Technology |
